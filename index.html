@@ -17,7 +17,7 @@
 <button class="btn dark" id="print">현재 화면 인쇄</button>
 </div></div>
 <div class="notice" style="margin-top:10px">
-현대 원본의 각 라인별 자료를 따로 출력합니다. <b>일반 '출력' 파일에서는 KEBAA / HEBAM / HEBAN을 제외</b>하고, 제외한 자료는 각 라인별 <b>통합모델</b> 파일로 따로 생성합니다. 일반 '출력' 시트는 기준 엑셀 Sheet2의 '마샤링' 열(실제 의미: 구분)이 A인 자재만 출력하고, B는 피팅, HOSE는 호스 출력으로 분리합니다.
+현대 원본의 각 라인별 자료를 따로 출력합니다. <b>일반 '출력' 파일에서는 라인별 특수 통합모델을 제외</b>하고, 제외한 자료는 각 라인별 <b>통합모델</b> 파일로 따로 생성합니다. 일반 '출력' 시트는 기준 엑셀 Sheet2의 '마샤링' 열(실제 의미: 구분)이 A인 자재만 출력하고, B는 피팅, HOSE는 호스 출력으로 분리합니다.
 </div>
 <div id="lineOutputs" class="output-grid"></div>
 <div id="tabs" class="tabs"></div>
@@ -100,30 +100,20 @@ $('save').onclick=()=>{let d=new Date(),day=d.toISOString().slice(0,10),r={id:Da
 function mainRows(a){
   // 기준 엑셀 Sheet2의 '마샤링' 열은 실제 업무상 '구분'이다.
   // 일반 출력(sheet1-출력)은 구분 A만 출력한다.
+  // 정렬: 1차 선반위치 오름차순 → 2차 부품자재코드 오름차순 → 생산번호.
+  // 요약행/빈행은 만들지 않고, 마지막 데이터 행에 굵은 검은 하단선을 적용한다.
   const rows=[...cleanRows(a).filter(r=>String(r.marsh).trim().toUpperCase()==='A')]
-    // 시트1 '출력' 전용 정렬: 1차 선반위치 오름차순 → 2차 부품자재코드 오름차순
     .sort((x,y)=>{
       const locCmp=N(x.loc).localeCompare(N(y.loc),'ko',{numeric:true,sensitivity:'base'});
       if(locCmp!==0)return locCmp;
-      return K(x.code).localeCompare(K(y.code),'ko',{numeric:true,sensitivity:'base'})
-        || String(x.prod).localeCompare(String(y.prod),'ko',{numeric:true});
+      const codeCmp=K(x.code).localeCompare(K(y.code),'ko',{numeric:true,sensitivity:'base'});
+      if(codeCmp!==0)return codeCmp;
+      return String(x.prod).localeCompare(String(y.prod),'ko',{numeric:true});
     });
-  const out=[['생산번호','모델','호기','부품자재코드','부품자재명','수량','업체명','구분','선반위치']];
-  let last='';
-  let start=0;
-  for(let i=0;i<rows.length;i++){
-    const r=rows[i];
-    out.push([r.prod,r.model,r.unit,r.code,r.name,r.qty,r.vendor,r.marsh,r.kind==='호스'?'':r.loc]);
-    const next=rows[i+1];
-    if(!next || next.code!==r.code){
-      const code=r.code;
-      const same=rows.slice(start,i+1);
-      out.push(['','', '',code+' 요약','','','','',same.reduce((s,x)=>s+Number(x.qty||0),0)]);
-      start=i+1;
-    }
-  }
-  if(rows.length) out.push(['','','','총합계','','','','',rows.reduce((s,r)=>s+Number(r.qty||0),0)]);
-  return out;
+  return [
+    ['생산번호','모델','호기','부품자재코드','부품자재명','수량','업체명','구분','선반위치'],
+    ...rows.map(r=>[r.prod,r.model,r.unit,r.code,r.name,r.qty,r.vendor,r.marsh,r.loc])
+  ];
 }
 function fitRows(a){
   const rows=cleanRows(a);
@@ -196,26 +186,39 @@ function hoseRows(a, byUnit=false){
   out.push(['','','총합계','','','', '', total]);
   return out;
 }
-function styleSheet(ws,widths,freeze='A2'){
+function styleSheet(ws,widths,freeze='A2',opts={}){
   ws['!cols']=widths.map(w=>({wch:w}));
   ws['!freeze']=freeze;
   if(ws['!ref'])ws['!autofilter']={ref:ws['!ref']};
   const range=XLSX.utils.decode_range(ws['!ref']);
-  const border={top:{style:'medium',color:{rgb:'6B7280'}},bottom:{style:'medium',color:{rgb:'6B7280'}},left:{style:'medium',color:{rgb:'6B7280'}},right:{style:'medium',color:{rgb:'6B7280'}}};
+  const thin={style:'thin',color:{rgb:'000000'}};
+  const medium={style:'medium',color:{rgb:'000000'}};
+  const headerFill={patternType:'solid',fgColor:{rgb:'E5E7EB'}};
   for(let R=range.s.r;R<=range.e.r;R++){
     for(let C=range.s.c;C<=range.e.c;C++){
       const cell=ws[XLSX.utils.encode_cell({r:R,c:C})];
       if(!cell)continue;
-      cell.s={font:{name:'맑은 고딕',sz:12,bold:R===0},alignment:{vertical:'center',horizontal:C===5?'center':'left',wrap_text:true},border};
-      if(R===0)cell.s.fill={patternType:'solid',fgColor:{rgb:'E5E7EB'}};
-      if(String(cell.v||'').includes('총합계'))cell.s.font={name:'맑은 고딕',sz:12,bold:true};
-      if(String(cell.v||'').includes('요약'))cell.s.fill={patternType:'solid',fgColor:{rgb:'F3F4F6'}};
+      cell.s={
+        font:{name:'맑은 고딕',sz:12,bold:R===0},
+        alignment:{vertical:'center',horizontal:C===5?'center':'left',wrap_text:true},
+        border:{top:thin,bottom:thin,left:thin,right:thin}
+      };
+      if(R===0)cell.s.fill=headerFill;
+    }
+  }
+  // 일반 '출력'은 요약행을 없애고, 그 자리에 해당하는 마지막 데이터 행의 아래쪽에 굵은 검은선을 넣는다.
+  if(opts.thickBottom && range.e.r>=range.s.r){
+    const r=range.e.r;
+    for(let C=range.s.c;C<=range.e.c;C++){
+      const cell=ws[XLSX.utils.encode_cell({r,c:C})];
+      if(cell)cell.s.border.bottom=medium;
     }
   }
 }
 function addStyledSheet(wb,name,data,widths){
   const ws=XLSX.utils.aoa_to_sheet(data);
-  styleSheet(ws,widths);
+  const isMainOutput=name==='출력';
+  styleSheet(ws,widths,'A2',{thickBottom:isMainOutput && data.length>1});
   ws['!rows']=data.map((r,i)=>({hpt:i===0?24:20}));
   ws['!pageSetup']={orientation:'landscape',fitToWidth:1,fitToHeight:0,scale:100};
   ws['!margins']={left:0.2,right:0.2,top:0.35,bottom:0.35,header:0.1,footer:0.1};
@@ -223,8 +226,17 @@ function addStyledSheet(wb,name,data,widths){
   XLSX.utils.book_append_sheet(wb,ws,name.slice(0,31));
   return ws;
 }
-const SPECIAL_MODELS=['KEBAA','HEBAM','HEBAN'];
-function isSpecialModel(r){return SPECIAL_MODELS.includes(String(r.model||'').trim().toUpperCase());}
+// 라인별 통합모델로 분리할 모델 목록. 이후 필요하면 이 배열만 추가/수정하면 된다.
+const SPECIAL_MODELS_BY_LINE={
+  '통합1':['KEBAA','HEBAM','HEBAN'],
+  '통합2':['HECAA','HECAB','HECAC','HECAN','CECKR']
+};
+function isSpecialModel(r){
+  const line=String(r.line||'');
+  const model=String(r.model||'').trim().toUpperCase();
+  return (SPECIAL_MODELS_BY_LINE[line]||[]).includes(model);
+}
+function specialModelNames(line){return SPECIAL_MODELS_BY_LINE[line]||[];}
 function lineRows(line, excludeSpecial=true){
   let a=S.rows.filter(r=>r.line===line);
   if(excludeSpecial)a=a.filter(r=>!isSpecialModel(r));
@@ -312,7 +324,8 @@ function workbookForSpecial(line){
 }
 function specialFileName(line){
   const day=selectedDateFromRows(specialRows(line));
-  return `서진정공_${line}용통합모델_${day}.xlsx`;
+  const label=line==='통합2'?'통합2라인통합모델':'통합1용통합모델';
+  return `서진정공_${label}_${day}.xlsx`;
 }
 function renderLineOutputButtons(){
   const lines=[
@@ -329,7 +342,7 @@ function renderLineOutputButtons(){
     const special=specialRows(key);
     return `<div class="output-card">
       <h3>${label} ${day} 출력</h3>
-      <p>${rows.length}개 자재 행 · ${new Set(rows.map(r=>r.prod)).size}개 생산번호<br>KEBAA / HEBAM / HEBAN은 이 파일에서 제외됩니다.</p>
+      <p>${rows.length}개 자재 행 · ${new Set(rows.map(r=>r.prod)).size}개 생산번호<br>특수 통합모델은 이 파일에서 제외됩니다.</p>
       <button class="btn primary" data-line-output="${key}">${label} ${day} 출력</button>
     </div>`;
   }).join('');
@@ -337,8 +350,8 @@ function renderLineOutputButtons(){
   const specialCards=lines.filter(([key])=>present.has(key)&&specialRows(key).length).map(([key,label])=>{
     const rows=specialRows(key), day=selectedDateFromRows(rows);
     return `<div class="output-card">
-      <h3>${label}용 통합모델 ${day}</h3>
-      <p>KEBAA / HEBAM / HEBAN ${rows.length}개 자재 행<br>${label}에서 제외한 모델만 별도 파일로 생성합니다.</p>
+      <h3>${label} 통합모델 ${day}</h3>
+      <p>${specialModelNames(key).join(' / ')} ${rows.length}개 자재 행<br>${label}에서 제외한 모델만 별도 파일로 생성합니다.</p>
       <button class="btn primary" data-special-output="${key}">${label}용 통합모델 ${day} 출력</button>
     </div>`;
   }).join('');
@@ -356,7 +369,7 @@ function renderLineOutputButtons(){
     btn.onclick=()=>{
       const line=btn.dataset.specialOutput;
       const rows=specialRows(line);
-      if(!rows.length){alert('해당 라인의 KEBAA / HEBAM / HEBAN 자료가 없습니다.');return;}
+      if(!rows.length){alert('해당 라인의 통합모델 자료가 없습니다.');return;}
       XLSX.writeFile(workbookForSpecial(line),specialFileName(line));
     };
   });
