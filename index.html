@@ -82,8 +82,13 @@ function enrich(r){
   const name=h?.name||r.sourceName||'';
   const marsh=h?.marsh||'';
   const vendor=h?.vendor||'';
-  const loc=(kind(marsh,name)==='호스')?'':(h?.loc||'');
-  return{...r,name,vendor,marsh,loc,use,kind:kind(marsh,name),matched:!!h,locationMatched:kind(marsh,name)==='호스'||!!(h&&N(h.loc)),group:group(r.model,r.line)}
+  // 호스는 선반위치를 사용하지 않는다.
+  // 일반 자재는 기준표 Sheet2의 H열(부품자재코드)이 없으면
+  // 선반위치를 명확하게 #N/A로 표시한다.
+  // H열 코드가 매칭되었지만 I열 선반위치 자체가 비어 있는 경우에는 빈칸으로 둔다.
+  const isHose=kind(marsh,name)==='호스';
+  const loc=isHose?'':(h ? N(h.loc) : '#N/A');
+  return{...r,name,vendor,marsh,loc,use,kind:kind(marsh,name),matched:!!h,locationMatched:isHose||!!(h&&N(h.loc)),group:group(r.model,r.line)}
 }function group(model,line){let m=N(model).toUpperCase();if(line==='통합1'&&['HEBAM','KEBAA'].includes(m))return m;if(/^HX/.test(m))return'HX';if(/^HW/.test(m))return'HW';return m||'기타'}function agg(a){let m=new Map;for(const r of a){let k=[r.group,r.kind,r.code,r.name,r.vendor,r.loc,r.prod,r.unit].join('|');if(!m.has(k))m.set(k,{...r});else m.get(k).qty+=r.qty}return[...m.values()]}
 function shown(){let a=S.rows.filter(r=>S.active==='전체'||r.group===S.active);if(!$('x').checked)a=a.filter(r=>r.marsh!=='X');return $('sum').checked?agg(a):a}
 function render(){
@@ -206,8 +211,27 @@ function styleSheet(ws,widths,freeze='A2',opts={}){
       if(R===0)cell.s.fill=headerFill;
     }
   }
-  // 일반 '출력'은 요약행을 없애고, 그 자리에 해당하는 마지막 데이터 행의 아래쪽에 굵은 검은선을 넣는다.
-  if(opts.thickBottom && range.e.r>=range.s.r){
+  // 일반 '출력'은 부품자재코드가 바뀌는 지점마다 굵은 가로선으로 그룹을 구분한다.
+  // 출력 데이터의 D열(0-based C=3)이 부품자재코드이다.
+  if(opts.codeGroupLines && range.e.r>range.s.r){
+    for(let R=range.s.r+1;R<=range.e.r;R++){
+      const prev=ws[XLSX.utils.encode_cell({r:R-1,c:3})];
+      const cur=ws[XLSX.utils.encode_cell({r:R,c:3})];
+      const prevCode=K(prev?.v);
+      const curCode=K(cur?.v);
+      if(prevCode!==curCode){
+        for(let C=range.s.c;C<=range.e.c;C++){
+          const cell=ws[XLSX.utils.encode_cell({r:R-1,c:C})];
+          if(cell)cell.s.border.bottom=medium;
+        }
+      }
+    }
+    // 마지막 데이터 행도 굵게 마감한다.
+    for(let C=range.s.c;C<=range.e.c;C++){
+      const cell=ws[XLSX.utils.encode_cell({r:range.e.r,c:C})];
+      if(cell)cell.s.border.bottom=medium;
+    }
+  } else if(opts.thickBottom && range.e.r>=range.s.r){
     const r=range.e.r;
     for(let C=range.s.c;C<=range.e.c;C++){
       const cell=ws[XLSX.utils.encode_cell({r,c:C})];
@@ -218,7 +242,7 @@ function styleSheet(ws,widths,freeze='A2',opts={}){
 function addStyledSheet(wb,name,data,widths){
   const ws=XLSX.utils.aoa_to_sheet(data);
   const isMainOutput=name==='출력';
-  styleSheet(ws,widths,'A2',{thickBottom:isMainOutput && data.length>1});
+  styleSheet(ws,widths,'A2',{thickBottom:isMainOutput && data.length>1,codeGroupLines:isMainOutput && data.length>1});
   ws['!rows']=data.map((r,i)=>({hpt:i===0?24:20}));
   ws['!pageSetup']={orientation:'landscape',fitToWidth:1,fitToHeight:0,scale:100};
   ws['!margins']={left:0.2,right:0.2,top:0.35,bottom:0.35,header:0.1,footer:0.1};
