@@ -222,7 +222,7 @@ function styleSheet(ws,widths,freeze='A2',opts={}){
         continue;
       }
       cell.s={
-        font:{name:'맑은 고딕',sz:14,bold:R===headerR},
+        font:{name:'맑은 고딕',sz:opts.fontSize||14,bold:R===headerR},
         alignment:{vertical:'center',horizontal:'center',wrap_text:true},
         border:{top:thin,bottom:thin,left:thin,right:thin}
       };
@@ -284,21 +284,25 @@ function styleSheet(ws,widths,freeze='A2',opts={}){
   }
 }
 function addStyledSheet(wb,name,data,widths,opts={}){
-  // 인쇄 시 시트 상단(우측)에 파일명·날짜를 표기한다.
-  // (엑셀 인쇄용 headerFooter는 일부 라이브러리 조합에서 깨지는 사례가 있어,
-  //  실제 화면/인쇄에 항상 정상적으로 나오는 '진짜 셀 데이터' 방식의 제목 행으로 대체했다.)
+  // 인쇄 시 시트 상단에 "{라인}라인 {구분} · 날짜"를 짧게 표기한다.
+  // 전체 열을 병합한 뒤 우측 정렬해서, 내용이 잘리지 않고 항상 한 줄로 온전히 보이게 한다.
   const titleRow=!!opts.headerText;
   const width=(data[0]?data[0].length:widths.length);
   let finalData=data;
   if(titleRow){
     const line=new Array(width).fill('');
-    line[width-1]=opts.headerText;
+    line[0]=opts.headerText; // 병합 셀의 값은 좌상단 셀에 있어야 하므로 0번째 칸에 넣는다.
     finalData=[line,...data];
   }
   const ws=XLSX.utils.aoa_to_sheet(finalData);
+  if(titleRow && width>1){
+    ws['!merges']=ws['!merges']||[];
+    ws['!merges'].push({s:{r:0,c:0},e:{r:0,c:width-1}});
+  }
   const isMainOutput=name==='출력';
   styleSheet(ws,widths,titleRow?'A3':'A2',{
     titleRow,
+    fontSize:opts.fontSize,
     thickBottom:isMainOutput && data.length>1,
     codeGroupLines:isMainOutput && data.length>1,
     fittingBlocks:name==='피팅-출력',
@@ -330,9 +334,9 @@ function formatDay(day){
   const m=s.match(/^(\d{4})(\d{2})(\d{2})$/);
   return m?`${m[1]}-${m[2]}-${m[3]}`:s;
 }
-function pageHeaderText(rows){
+function sheetHeaderText(subject,label,rows){
   const day=formatDay(selectedDateFromRows(rows));
-  return `${S.source||''} · ${day}`;
+  return `${subject} ${label} · ${day}`;
 }
 // 라인별 통합모델로 분리할 모델 목록. 이후 필요하면 이 배열만 추가/수정하면 된다.
 const SPECIAL_MODELS_BY_LINE={
@@ -360,19 +364,19 @@ function workbookForLine(line){
     if(!ok)return null;
   }
   const wb=XLSX.utils.book_new();
-  const headerText=pageHeaderText(a);
+  const subject=`${line}라인`;
 
   // 실제 회사 파일의 핵심 출력 시트 명칭을 유지한다.
   // Sheet1-출력 = Sheet2의 '마샤링(실제 의미: 구분)'이 A인 자재만 출력
-  addStyledSheet(wb,'출력',mainRows(a),[16,22,10,22,36,8,14,10,18],{headerText,codeCols:[3]});
+  addStyledSheet(wb,'출력',mainRows(a),[16,18,10,18,26,8,14,10,14],{headerText:sheetHeaderText(subject,'출력',a),codeCols:[3],fontSize:17});
 
   const fittings=a.filter(r=>r.kind==='피팅');
-  if(fittings.length) addStyledSheet(wb,'피팅-출력',fitRows(fittings),[8,22,8,3,8,22,8,3,8,22,8],{headerText,codeCols:[1,5,9],codeHeaderOnly:true});
+  if(fittings.length) addStyledSheet(wb,'피팅-출력',fitRows(fittings),[8,22,8,3,8,22,8,3,8,22,8],{headerText:sheetHeaderText(subject,'피팅',fittings),codeCols:[1,5,9],codeHeaderOnly:true});
 
   const hoses=a.filter(r=>r.kind==='호스');
   if(hoses.length){
-    addStyledSheet(wb,'호스-출력',hoseRows(hoses),[16,22,10,22,36,8,14,10],{headerText,codeCols:[3]});
-    addStyledSheet(wb,'호기별 호스 확인용-출력',hoseRows(hoses,true),[16,22,12,22,36,8,14,10],{headerText,codeCols:[3]});
+    addStyledSheet(wb,'호스-출력',hoseRows(hoses),[16,22,10,22,36,8,14,10],{headerText:sheetHeaderText(subject,'호스',hoses),codeCols:[3]});
+    addStyledSheet(wb,'호기별 호스 확인용-출력',hoseRows(hoses,true),[16,22,12,22,36,8,14,10],{headerText:sheetHeaderText(subject,'호기별 호스확인',hoses),codeCols:[3]});
   }
 
   // KEBAA / HEBAM / HEBAN은 일반 라인 출력에서 제외하고 별도의 통합모델 파일로 만든다.
@@ -383,7 +387,7 @@ function workbookForLine(line){
     if(s.length){
       const d=[['착수분 전달용','','','','','',''],['','','','','','',''],['순번','생산번호','모델','호기','부품자재코드','부품자재명','수량'],
         ...s.map((r,i)=>[i+1,r.prod,r.model,r.unit,r.code,r.name,r.qty])];
-      addStyledSheet(wb,'신반장님 전달용',d,[8,16,22,10,22,36,8],{headerText,codeCols:[4]});
+      addStyledSheet(wb,'신반장님 전달용',d,[8,16,22,10,22,36,8],{codeCols:[4]});
     }
   }
   return wb;
@@ -421,14 +425,14 @@ function specialRows(line){
 function workbookForSpecial(line){
   const rows=specialRows(line);
   const wb=XLSX.utils.book_new();
-  const headerText=pageHeaderText(rows);
-  addStyledSheet(wb,'출력',mainRows(rows),[16,22,10,22,36,8,14,10,18],{headerText,codeCols:[3]});
+  const subject=`${line}라인 통합모델`;
+  addStyledSheet(wb,'출력',mainRows(rows),[16,18,10,18,26,8,14,10,14],{headerText:sheetHeaderText(subject,'출력',rows),codeCols:[3],fontSize:17});
   const f=rows.filter(r=>r.kind==='피팅');
-  if(f.length)addStyledSheet(wb,'피팅-출력',fitRows(f),[8,22,8,3,8,22,8,3,8,22,8],{headerText,codeCols:[1,5,9],codeHeaderOnly:true});
+  if(f.length)addStyledSheet(wb,'피팅-출력',fitRows(f),[8,22,8,3,8,22,8,3,8,22,8],{headerText:sheetHeaderText(subject,'피팅',f),codeCols:[1,5,9],codeHeaderOnly:true});
   const h=rows.filter(r=>r.kind==='호스');
   if(h.length){
-    addStyledSheet(wb,'호스-출력',hoseRows(h),[16,22,10,22,36,8,14,10],{headerText,codeCols:[3]});
-    addStyledSheet(wb,'호기별 호스 확인용-출력',hoseRows(h,true),[16,22,12,22,36,8,14,10],{headerText,codeCols:[3]});
+    addStyledSheet(wb,'호스-출력',hoseRows(h),[16,22,10,22,36,8,14,10],{headerText:sheetHeaderText(subject,'호스',h),codeCols:[3]});
+    addStyledSheet(wb,'호기별 호스 확인용-출력',hoseRows(h,true),[16,22,12,22,36,8,14,10],{headerText:sheetHeaderText(subject,'호기별 호스확인',h),codeCols:[3]});
   }
   return wb;
 }
