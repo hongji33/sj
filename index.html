@@ -226,6 +226,11 @@ function styleSheet(ws,widths,freeze='A2',opts={}){
         alignment:{vertical:'center',horizontal:'center',wrap_text:true},
         border:{top:thin,bottom:thin,left:thin,right:thin}
       };
+      // 특정 열(예: 업체명)은 칸이 좁을 때 가운데 정렬이면 글자 중간이 잘려 보이므로,
+      // 앞글자부터 보이도록 데이터 행만 좌측 정렬로 바꾼다(머리글 행은 그대로 가운데 정렬 유지).
+      if(opts.leftAlignCols && opts.leftAlignCols.includes(C) && R>headerR){
+        cell.s.alignment.horizontal='left';
+      }
       if(R===headerR)cell.s.fill=headerFill;
       // 피팅-출력: 실제 현장 양식처럼 각 자재 묶음의 첫 행을 베이지색으로 강조
       if(opts.fittingBlocks && R>headerR){
@@ -303,6 +308,7 @@ function addStyledSheet(wb,name,data,widths,opts={}){
   styleSheet(ws,widths,titleRow?'A3':'A2',{
     titleRow,
     fontSize:opts.fontSize,
+    leftAlignCols:opts.leftAlignCols,
     thickBottom:isMainOutput && data.length>1,
     codeGroupLines:isMainOutput && data.length>1,
     fittingBlocks:name==='피팅-출력',
@@ -368,7 +374,7 @@ function workbookForLine(line){
 
   // 실제 회사 파일의 핵심 출력 시트 명칭을 유지한다.
   // Sheet1-출력 = Sheet2의 '마샤링(실제 의미: 구분)'이 A인 자재만 출력
-  addStyledSheet(wb,'출력',mainRows(a),[16,18,10,18,26,8,14,10,14],{headerText:sheetHeaderText(subject,'출력',a),codeCols:[3],fontSize:17});
+  addStyledSheet(wb,'출력',mainRows(a),[16,26,10,18,26,6,14,6,12],{headerText:sheetHeaderText(subject,'출력',a),codeCols:[3],leftAlignCols:[6]});
 
   const fittings=a.filter(r=>r.kind==='피팅');
   if(fittings.length) addStyledSheet(wb,'피팅-출력',fitRows(fittings),[8,22,8,3,8,22,8,3,8,22,8],{headerText:sheetHeaderText(subject,'피팅',fittings),codeCols:[1,5,9],codeHeaderOnly:true});
@@ -426,7 +432,7 @@ function workbookForSpecial(line){
   const rows=specialRows(line);
   const wb=XLSX.utils.book_new();
   const subject=`${line}라인 통합모델`;
-  addStyledSheet(wb,'출력',mainRows(rows),[16,18,10,18,26,8,14,10,14],{headerText:sheetHeaderText(subject,'출력',rows),codeCols:[3],fontSize:17});
+  addStyledSheet(wb,'출력',mainRows(rows),[16,26,10,18,26,6,14,6,12],{headerText:sheetHeaderText(subject,'출력',rows),codeCols:[3],leftAlignCols:[6]});
   const f=rows.filter(r=>r.kind==='피팅');
   if(f.length)addStyledSheet(wb,'피팅-출력',fitRows(f),[8,22,8,3,8,22,8,3,8,22,8],{headerText:sheetHeaderText(subject,'피팅',f),codeCols:[1,5,9],codeHeaderOnly:true});
   const h=rows.filter(r=>r.kind==='호스');
