@@ -101,7 +101,13 @@ function mainRows(a){
   // 기준 엑셀 Sheet2의 '마샤링' 열은 실제 업무상 '구분'이다.
   // 일반 출력(sheet1-출력)은 구분 A만 출력한다.
   const rows=[...cleanRows(a).filter(r=>String(r.marsh).trim().toUpperCase()==='A')]
-    .sort((x,y)=>String(x.code).localeCompare(String(y.code),'ko')||String(x.prod).localeCompare(String(y.prod)));
+    // 시트1 '출력' 전용 정렬: 1차 선반위치 오름차순 → 2차 부품자재코드 오름차순
+    .sort((x,y)=>{
+      const locCmp=N(x.loc).localeCompare(N(y.loc),'ko',{numeric:true,sensitivity:'base'});
+      if(locCmp!==0)return locCmp;
+      return K(x.code).localeCompare(K(y.code),'ko',{numeric:true,sensitivity:'base'})
+        || String(x.prod).localeCompare(String(y.prod),'ko',{numeric:true});
+    });
   const out=[['생산번호','모델','호기','부품자재코드','부품자재명','수량','업체명','구분','선반위치']];
   let last='';
   let start=0;
@@ -195,7 +201,7 @@ function styleSheet(ws,widths,freeze='A2'){
   ws['!freeze']=freeze;
   if(ws['!ref'])ws['!autofilter']={ref:ws['!ref']};
   const range=XLSX.utils.decode_range(ws['!ref']);
-  const border={top:{style:'thin',color:{rgb:'D1D5DB'}},bottom:{style:'thin',color:{rgb:'D1D5DB'}},left:{style:'thin',color:{rgb:'D1D5DB'}},right:{style:'thin',color:{rgb:'D1D5DB'}}};
+  const border={top:{style:'medium',color:{rgb:'6B7280'}},bottom:{style:'medium',color:{rgb:'6B7280'}},left:{style:'medium',color:{rgb:'6B7280'}},right:{style:'medium',color:{rgb:'6B7280'}}};
   for(let R=range.s.r;R<=range.e.r;R++){
     for(let C=range.s.c;C<=range.e.c;C++){
       const cell=ws[XLSX.utils.encode_cell({r:R,c:C})];
@@ -211,7 +217,9 @@ function addStyledSheet(wb,name,data,widths){
   const ws=XLSX.utils.aoa_to_sheet(data);
   styleSheet(ws,widths);
   ws['!rows']=data.map((r,i)=>({hpt:i===0?24:20}));
-  ws['!pageSetup']={orientation:'portrait',fitToWidth:1,fitToHeight:0};
+  ws['!pageSetup']={orientation:'landscape',fitToWidth:1,fitToHeight:0,scale:100};
+  ws['!margins']={left:0.2,right:0.2,top:0.35,bottom:0.35,header:0.1,footer:0.1};
+  ws['!printOptions']={gridLines:false,headings:false};
   XLSX.utils.book_append_sheet(wb,ws,name.slice(0,31));
   return ws;
 }
