@@ -1,4 +1,4 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>서진정공 자재 준비 자동화</title><script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script><script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script><style>
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>서진정공 자재 준비 자동화</title><script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script><style>
 *{box-sizing:border-box}body{margin:0;background:#f5f7fb;color:#1f2937;font-family:"Malgun Gothic","Noto Sans KR",Arial,sans-serif}header{background:#111827;color:#fff;padding:22px 28px}h1{margin:0;font-size:24px}header p{margin:6px 0 0;color:#cbd5e1;font-size:13px}.wrap{max-width:1500px;margin:18px auto;padding:0 14px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:0 3px 12px #00000008}.bar{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}.bar h2{font-size:17px;margin:0}.btn{border:0;border-radius:8px;padding:9px 13px;font-weight:700;cursor:pointer;background:#e5e7eb}.primary{background:#2563eb;color:#fff}.dark{background:#111827;color:#fff}.green{background:#dcfce7;color:#166534}.file{padding:14px;border:2px dashed #cbd5e1;border-radius:10px;background:#f8fafc}.notice{padding:11px;border-radius:8px;margin-top:10px;background:#eff6ff;color:#1e40af;font-size:13px;line-height:1.55}.success{background:#f0fdf4;color:#166534}.danger{background:#fef2f2;color:#991b1b}.warn{background:#fff7ed;color:#9a3412}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}.stat{border:1px solid #e5e7eb;border-radius:9px;padding:12px}.stat b{display:block;font-size:22px;margin-top:4px}.tabs{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.tab{border:1px solid #d1d5db;background:#fff;border-radius:8px;padding:8px 12px;font-weight:700;cursor:pointer}.tab.active{background:#111827;color:#fff}.table{overflow:auto;border:1px solid #e5e7eb;border-radius:9px}table{border-collapse:collapse;width:100%;min-width:1050px;font-size:12px}th,td{padding:8px;border-bottom:1px solid #e5e7eb;white-space:nowrap;text-align:left}th{background:#f1f5f9}.tag{padding:3px 7px;border-radius:99px;font-size:11px;font-weight:700}.a{background:#e0e7ff;color:#3730a3}.b{background:#fef3c7;color:#92400e}.h{background:#dcfce7;color:#166534}.x{background:#f3f4f6;color:#4b5563}.err{background:#fee2e2;color:#991b1b}.muted{color:#6b7280;font-size:12px}.empty{text-align:center;padding:30px;color:#6b7280}.check{font-size:13px;margin-right:10px}@media(max-width:800px){.stats{grid-template-columns:repeat(2,1fr)}}@media print{.noprint{display:none!important}body{background:#fff}.wrap{max-width:none;margin:0;padding:0}.card{border:0;box-shadow:none;padding:0;margin-bottom:18px}table{font-size:10pt;min-width:0}th{position:static}header{background:#fff;color:#111;padding:0 0 10px;border-bottom:2px solid #111}header p{color:#555}}
 .output-grid{display:grid;grid-template-columns:repeat(2,minmax(260px,1fr));gap:12px;margin-top:14px}.output-card{border:1px solid #dbe2ea;border-radius:10px;padding:14px;background:#f8fafc}.output-card h3{margin:0 0 6px;font-size:16px}.output-card p{margin:0 0 10px;color:#64748b;font-size:12px;line-height:1.45}.output-card .btn{width:100%;font-size:14px;padding:11px}@media(max-width:800px){.output-grid{grid-template-columns:1fr}}</style></head><body><header><h1>서진정공 자재 준비 자동화</h1><p>현대에서 받은 자재소요량 → 라인별 출력 시트 생성 → 날짜별 출력 → 작업 기록 저장</p></header><main class="wrap">
 <section class="card noprint"><div class="bar"><h2>1. 현대 자재소요량 업로드</h2><span class="muted">.xls / .xlsx</span></div><div class="file" style="margin-top:10px"><input id="file" type="file" accept=".xls,.xlsx,.xlsm"> <button class="btn primary" id="go" disabled>분석하기</button></div><div id="info" class="notice">현대에서 보내준 파일을 그대로 올리세요. 하루분이든 여러 날분이든 가능합니다. <b>통합2는 현대의 '통합2' 시트, 2026-07-21 자재소요량 리스트를 기준으로 설계</b>되어 있습니다.</div></section>
@@ -206,8 +206,9 @@ function hasEnglishSuffix(v){return /[A-Za-z]+$/.test(String(v??'').trim());}
 function styleSheet(ws,widths,freeze='A2',opts={}){
   ws['!cols']=widths.map(w=>({wch:w}));
   ws['!freeze']=freeze;
-  if(ws['!ref'])ws['!autofilter']={ref:ws['!ref']};
   const range=XLSX.utils.decode_range(ws['!ref']);
+  const headerR=opts.titleRow?range.s.r+1:range.s.r; // 실제 표 머리글 행(제목 행이 있으면 한 칸 아래)
+  if(ws['!ref'])ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:headerR,c:range.s.c},e:{r:range.e.r,c:range.e.c}})};
   const thin={style:'thin',color:{rgb:'000000'}};
   const medium={style:'medium',color:{rgb:'000000'}};
   const headerFill={patternType:'solid',fgColor:{rgb:'E5E7EB'}};
@@ -215,14 +216,19 @@ function styleSheet(ws,widths,freeze='A2',opts={}){
     for(let C=range.s.c;C<=range.e.c;C++){
       const cell=ws[XLSX.utils.encode_cell({r:R,c:C})];
       if(!cell)continue;
+      // 제목 행(파일명/날짜 표기용): 표 테두리·배경 없이 우측 정렬 텍스트만 표시한다.
+      if(opts.titleRow && R===range.s.r){
+        cell.s={font:{name:'맑은 고딕',sz:11,color:{rgb:'6B7280'}},alignment:{vertical:'center',horizontal:'right'}};
+        continue;
+      }
       cell.s={
-        font:{name:'맑은 고딕',sz:14,bold:R===0},
+        font:{name:'맑은 고딕',sz:14,bold:R===headerR},
         alignment:{vertical:'center',horizontal:'center',wrap_text:true},
         border:{top:thin,bottom:thin,left:thin,right:thin}
       };
-      if(R===0)cell.s.fill=headerFill;
+      if(R===headerR)cell.s.fill=headerFill;
       // 피팅-출력: 실제 현장 양식처럼 각 자재 묶음의 첫 행을 베이지색으로 강조
-      if(opts.fittingBlocks && R>0){
+      if(opts.fittingBlocks && R>headerR){
         const isGroupRow=[0,4,8].some(c=>{
           const v=ws[XLSX.utils.encode_cell({r:R,c})]?.v;
           return v!==undefined && v!==null && String(v).trim()!=='';
@@ -233,8 +239,8 @@ function styleSheet(ws,widths,freeze='A2',opts={}){
   }
   // 일반 '출력'은 부품자재코드가 바뀌는 지점마다 굵은 가로선으로 그룹을 구분한다.
   // 출력 데이터의 D열(0-based C=3)이 부품자재코드이다.
-  if(opts.codeGroupLines && range.e.r>range.s.r){
-    for(let R=range.s.r+1;R<=range.e.r;R++){
+  if(opts.codeGroupLines && range.e.r>headerR){
+    for(let R=headerR+1;R<=range.e.r;R++){
       const prev=ws[XLSX.utils.encode_cell({r:R-1,c:3})];
       const cur=ws[XLSX.utils.encode_cell({r:R,c:3})];
       const prevCode=K(prev?.v);
@@ -251,7 +257,7 @@ function styleSheet(ws,widths,freeze='A2',opts={}){
       const cell=ws[XLSX.utils.encode_cell({r:range.e.r,c:C})];
       if(cell)cell.s.border.bottom=medium;
     }
-  } else if(opts.thickBottom && range.e.r>=range.s.r){
+  } else if(opts.thickBottom && range.e.r>=headerR){
     const r=range.e.r;
     for(let C=range.s.c;C<=range.e.c;C++){
       const cell=ws[XLSX.utils.encode_cell({r,c:C})];
@@ -261,9 +267,9 @@ function styleSheet(ws,widths,freeze='A2',opts={}){
   // 부품자재코드 끝에 영문자가 붙어있으면(변형/파생 코드) 그 칸만 연한 회색으로 강조한다.
   // opts.codeHeaderOnly가 true면(피팅-출력처럼 열이 여러 블록으로 나뉜 경우) 각 코드열 왼쪽의
   // 순번 칸에 값이 있는 행(=자재코드 헤더 행)에만 적용하고, 하위 상세 행(위치/생산번호)은 건너뛴다.
-  if(opts.codeCols && opts.codeCols.length && range.e.r>=range.s.r){
+  if(opts.codeCols && opts.codeCols.length && range.e.r>=headerR){
     const grayFill={patternType:'solid',fgColor:{rgb:'D9D9D9'}};
-    for(let R=range.s.r+1;R<=range.e.r;R++){
+    for(let R=headerR+1;R<=range.e.r;R++){
       opts.codeCols.forEach(cCol=>{
         const cell=ws[XLSX.utils.encode_cell({r:R,c:cCol})];
         if(!cell||cell.v===undefined||cell.v===null||String(cell.v).trim()==='')return;
@@ -278,78 +284,46 @@ function styleSheet(ws,widths,freeze='A2',opts={}){
   }
 }
 function addStyledSheet(wb,name,data,widths,opts={}){
-  const ws=XLSX.utils.aoa_to_sheet(data);
+  // 인쇄 시 시트 상단(우측)에 파일명·날짜를 표기한다.
+  // (엑셀 인쇄용 headerFooter는 일부 라이브러리 조합에서 깨지는 사례가 있어,
+  //  실제 화면/인쇄에 항상 정상적으로 나오는 '진짜 셀 데이터' 방식의 제목 행으로 대체했다.)
+  const titleRow=!!opts.headerText;
+  const width=(data[0]?data[0].length:widths.length);
+  let finalData=data;
+  if(titleRow){
+    const line=new Array(width).fill('');
+    line[width-1]=opts.headerText;
+    finalData=[line,...data];
+  }
+  const ws=XLSX.utils.aoa_to_sheet(finalData);
   const isMainOutput=name==='출력';
-  styleSheet(ws,widths,'A2',{
+  styleSheet(ws,widths,titleRow?'A3':'A2',{
+    titleRow,
     thickBottom:isMainOutput && data.length>1,
     codeGroupLines:isMainOutput && data.length>1,
     fittingBlocks:name==='피팅-출력',
     codeCols:opts.codeCols,
     codeHeaderOnly:opts.codeHeaderOnly
   });
-  ws['!rows']=data.map((r,i)=>({hpt:i===0?30:26}));
+  ws['!rows']=finalData.map((r,i)=>{
+    if(titleRow&&i===0)return {hpt:18};
+    const dataIdx=titleRow?i-1:i;
+    return {hpt:dataIdx===0?30:26};
+  });
   ws['!pageSetup']={orientation:'landscape',fitToWidth:1,fitToHeight:0,scale:100,paperSize:9,fitToPage:true};
   ws['!sheetPr']={pageSetUpPr:{fitToPage:true,autoPageBreaks:false}};
-  ws['!margins']={left:0.2,right:0.2,top:0.4,bottom:0.35,header:0.15,footer:0.1};
+  ws['!margins']={left:0.2,right:0.2,top:0.35,bottom:0.35,header:0.1,footer:0.1};
   if(ws['!ref'])ws['!printArea']=ws['!ref'];
   ws['!printOptions']={gridLines:false,headings:false};
-  // 인쇄 시 시트 상단 우측에 파일명과 날짜를 표기한다(예: "통합1라인 피팅"처럼 페이지 머리글 영역에 출력).
-  // xlsx-js-style은 headerFooter를 쓰지 않는 경우가 있어, ws['!headerFooter']는 일단 남겨두고
-  // 실제 반영은 downloadWorkbook()에서 JSZip으로 xml에 직접 삽입해 보증한다.
-  if(opts.headerText){
-    const safe=String(opts.headerText).replace(/&/g,'&&');
-    const code='&R&"맑은 고딕"&11'+safe;
-    ws['!headerFooter']={oddHeader:code,evenHeader:code,firstHeader:code};
-    wb.__headerFooters=wb.__headerFooters||{};
-    wb.__headerFooters[name.slice(0,31)]=code;
+  const sheetName=name.slice(0,31);
+  XLSX.utils.book_append_sheet(wb,ws,sheetName);
+  if(titleRow){
+    // 제목 행 + 표 머리글 행(1~2행)을 모든 인쇄 페이지 상단에 반복해서 보이도록 설정한다.
+    if(!wb.Workbook)wb.Workbook={};
+    if(!wb.Workbook.Names)wb.Workbook.Names=[];
+    wb.Workbook.Names.push({Sheet:wb.SheetNames.length-1,Name:'_xlnm.Print_Titles',Ref:`'${sheetName}'!$1:$2`});
   }
-  XLSX.utils.book_append_sheet(wb,ws,name.slice(0,31));
   return ws;
-}
-// xlsx-js-style이 headerFooter(xl/worksheets/sheetN.xml의 <headerFooter>)를 써주지 않는 경우를 대비해,
-// 생성된 xlsx를 JSZip으로 열어 각 시트 xml에 직접 <headerFooter> 요소를 삽입한 뒤 다운로드한다.
-async function downloadWorkbook(wb,filename){
-  const headers=wb.__headerFooters||{};
-  if(typeof JSZip==='undefined' || !Object.keys(headers).length){
-    XLSX.writeFile(wb,filename);
-    return;
-  }
-  try{
-    const buf=XLSX.write(wb,{type:'array',bookType:'xlsx'});
-    const zip=await JSZip.loadAsync(buf);
-    const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    for(let i=0;i<wb.SheetNames.length;i++){
-      const sheetName=wb.SheetNames[i];
-      const code=headers[sheetName];
-      if(!code)continue;
-      const path=`xl/worksheets/sheet${i+1}.xml`;
-      const file=zip.file(path);
-      if(!file)continue;
-      let xml=await file.async('string');
-      const hfXml=`<headerFooter><oddHeader>${esc(code)}</oddHeader></headerFooter>`;
-      if(/<headerFooter[\s\S]*?<\/headerFooter>|<headerFooter[^>]*\/>/.test(xml)){
-        xml=xml.replace(/<headerFooter[\s\S]*?<\/headerFooter>|<headerFooter[^>]*\/>/,hfXml);
-      }else if(/<pageSetup[^>]*\/>/.test(xml)){
-        xml=xml.replace(/(<pageSetup[^>]*\/>)/,'$1'+hfXml);
-      }else if(/<pageMargins[^>]*\/>/.test(xml)){
-        xml=xml.replace(/(<pageMargins[^>]*\/>)/,'$1'+hfXml);
-      }else{
-        xml=xml.replace('</worksheet>',hfXml+'</worksheet>');
-      }
-      zip.file(path,xml);
-    }
-    const blob=await zip.generateAsync({type:'blob'});
-    const a=document.createElement('a');
-    a.href=URL.createObjectURL(blob);
-    a.download=filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(()=>URL.revokeObjectURL(a.href),4000);
-  }catch(e){
-    console.error('페이지 머리글 삽입 실패, 기본 방식으로 저장합니다.',e);
-    XLSX.writeFile(wb,filename);
-  }
 }
 function formatDay(day){
   const s=String(day||'');
@@ -498,7 +472,7 @@ function renderLineOutputButtons(){
     btn.onclick=()=>{
       const line=btn.dataset.lineOutput;
       const wb=workbookForLine(line);
-      if(wb)downloadWorkbook(wb,outputFileName(line));
+      if(wb)XLSX.writeFile(wb,outputFileName(line));
     };
   });
   document.querySelectorAll('[data-special-output]').forEach(btn=>{
@@ -506,7 +480,7 @@ function renderLineOutputButtons(){
       const line=btn.dataset.specialOutput;
       const rows=specialRows(line);
       if(!rows.length){alert('해당 라인의 통합모델 자료가 없습니다.');return;}
-      downloadWorkbook(workbookForSpecial(line),specialFileName(line));
+      XLSX.writeFile(workbookForSpecial(line),specialFileName(line));
     };
   });
 }
