@@ -17,7 +17,7 @@
 <button class="btn dark" id="print">현재 화면 인쇄</button>
 </div></div>
 <div class="notice" style="margin-top:10px">
-현대 원본의 각 라인별 자료를 따로 출력합니다. 버튼 이름은 실제 전달 업무에 맞춰 <b>라인 + 날짜 + 출력</b>으로 표시됩니다.
+현대 원본의 각 라인별 자료를 따로 출력합니다. <b>일반 '출력' 시트는 기준 엑셀 Sheet2의 '마샤링' 열(실제 의미: 구분)이 A인 자재만</b> 출력하고, B는 피팅, HOSE는 호스 출력으로 분리합니다. 버튼 이름은 실제 전달 업무에 맞춰 <b>라인 + 날짜 + 출력</b>으로 표시됩니다.
 </div>
 <div id="lineOutputs" class="output-grid"></div>
 <div id="tabs" class="tabs"></div>
@@ -73,13 +73,16 @@ function stats(){let p=new Set(S.rows.map(r=>r.prod)).size,u=S.rows.filter(r=>!r
 $('file').onchange=e=>{$('go').disabled=!e.target.files.length;$('info').textContent=e.target.files[0]?.name||''};$('go').onclick=async()=>{try{let f=$('file').files[0],wb=XLSX.read(await f.arrayBuffer(),{type:'array'}),a=analyze(wb);if(!a.all.length)throw Error('생산번호/자재코드/수량 열을 찾지 못했습니다.');S.source=f.name;S.rows=a.all.map(enrich);S.active='전체';$('controls').style.display='block';$('save').disabled=false;stats();render();$('info').innerHTML=`<div class="notice success"><b>${f.name}</b><br>${a.sheets.map(x=>`${x[0]}: ${x[1]}행${x[2]?' · '+x[2]:''}`).join(' / ')}</div>`}catch(e){$('info').innerHTML='<div class="notice danger">'+e.message+'</div>'}};$('x').onchange=render;$('sum').onchange=render;$('print').onclick=()=>window.print();
 $('save').onclick=()=>{let d=new Date(),day=d.toISOString().slice(0,10),r={id:Date.now(),date:day,source:S.source,rows:S.rows,savedAt:d.toISOString()};S.history=[r,...S.history.filter(x=>x.date!==day)];localStorage.setItem('sjMaterialHistory',JSON.stringify(S.history));history();alert(day+' 작업을 저장했습니다.')};function history(){let a=S.history;$('history').innerHTML=a.length?`<div class="table"><table><thead><tr><th>날짜</th><th>원본</th><th>행</th><th>저장시각</th><th></th></tr></thead><tbody>${a.map(r=>`<tr><td>${r.date}</td><td>${r.source}</td><td>${r.rows.length}</td><td>${new Date(r.savedAt).toLocaleString('ko-KR')}</td><td><button class="btn" onclick="restore(${r.id})">불러오기</button></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">저장된 작업이 없습니다.</div>'}window.restore=id=>{let r=S.history.find(x=>x.id===id);if(!r)return;S.source=r.source;S.rows=r.rows;S.active='전체';$('controls').style.display='block';$('save').disabled=false;stats();render()};$('hist').onclick=()=>{$('history').scrollIntoView({behavior:'smooth'})};$('backup').onclick=()=>{let b=new Blob([JSON.stringify(S.history,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='서진정공_자재작업_백업_'+new Date().toISOString().slice(0,10)+'.json';a.click()};function cleanRows(a){return a.filter(r=>r.prod&&r.code&&r.qty>0)}
 function mainRows(a){
-  const rows=[...cleanRows(a)].sort((x,y)=>String(x.code).localeCompare(String(y.code),'ko')||String(x.prod).localeCompare(String(y.prod)));
+  // 기준 엑셀 Sheet2의 '마샤링' 열은 실제 업무상 '구분'이다.
+  // 일반 출력(sheet1-출력)은 구분 A만 출력한다.
+  const rows=[...cleanRows(a).filter(r=>String(r.marsh).trim().toUpperCase()==='A')]
+    .sort((x,y)=>String(x.code).localeCompare(String(y.code),'ko')||String(x.prod).localeCompare(String(y.prod)));
   const out=[['생산번호','모델','호기','부품자재코드','부품자재명','수량','업체명','구분','선반위치']];
   let last='';
   let start=0;
   for(let i=0;i<rows.length;i++){
     const r=rows[i];
-    out.push([r.prod,r.model,r.unit,r.code,r.name,r.qty,r.vendor,r.marsh,r.loc]);
+    out.push([r.prod,r.model,r.unit,r.code,r.name,r.qty,r.vendor,r.marsh,r.kind==='호스'?'':r.loc]);
     const next=rows[i+1];
     if(!next || next.code!==r.code){
       const code=r.code;
@@ -142,22 +145,24 @@ function hoseRows(a, byUnit=false){
   }else{
     rows=rows.filter(r=>r.kind==='호스').sort((x,y)=>String(x.code).localeCompare(String(y.code),'ko')||Number(x.unit||0)-Number(y.unit||0));
   }
-  const out=[['생산번호','모델','호기','부품자재코드','부품자재명','수량','업체명','구분','선반위치']];
+  const out=[['생산번호','모델','호기','부품자재코드','부품자재명','수량','업체명','구분']];
   if(!rows.length)return out;
   let lastCode='',lastUnit='',start=0;
   for(let i=0;i<rows.length;i++){
     const r=rows[i];
-    out.push([r.prod,r.model,r.unit,r.code,r.name,r.qty,r.vendor,'HOSE',r.loc]);
+    // 호스는 선반위치가 없는 자재이므로 Sheet2의 선반위치를 가져오지 않는다.
+    out.push([r.prod,r.model,r.unit,r.code,r.name,r.qty,r.vendor,'HOSE']);
     const key=byUnit?String(r.unit):String(r.code);
     const next=rows[i+1], nextKey=next?(byUnit?String(next.unit):String(next.code)):'';
     if(key!==nextKey){
       const sum=rows.slice(start,i+1).reduce((s,x)=>s+Number(x.qty||0),0);
-      out.push(['','',byUnit?(key+' 요약'):'',r.code+' 요약','','','','',sum]);
+      out.push(['','',byUnit?(key+' 요약'):'',r.code+' 요약','','','','']);
+      out.push(['','','','', '', '', '', sum]);
       start=i+1;
     }
   }
   const total=rows.reduce((s,r)=>s+Number(r.qty||0),0);
-  out.push(['','','총합계','','','', '', '',total]);
+  out.push(['','','총합계','','','', '', total]);
   return out;
 }
 function styleSheet(ws,widths,freeze='A2'){
@@ -195,6 +200,7 @@ function workbookForLine(line){
   const wb=XLSX.utils.book_new();
 
   // 실제 회사 파일의 핵심 출력 시트 명칭을 유지한다.
+  // Sheet1-출력 = Sheet2의 '마샤링(실제 의미: 구분)'이 A인 자재만 출력
   addStyledSheet(wb,'출력',mainRows(a),[16,22,10,22,36,8,28,10,18]);
 
   const fittings=a.filter(r=>r.kind==='피팅');
@@ -202,8 +208,8 @@ function workbookForLine(line){
 
   const hoses=a.filter(r=>r.kind==='호스');
   if(hoses.length){
-    addStyledSheet(wb,'호스-출력',hoseRows(hoses),[16,22,10,22,36,8,28,10,18]);
-    addStyledSheet(wb,'호기별 호스 확인용-출력',hoseRows(hoses,true),[16,22,12,22,36,8,28,10,18]);
+    addStyledSheet(wb,'호스-출력',hoseRows(hoses),[16,22,10,22,36,8,28,10]);
+    addStyledSheet(wb,'호기별 호스 확인용-출력',hoseRows(hoses,true),[16,22,12,22,36,8,28,10]);
   }
 
   // 통합1라인의 HEBAM/KEBAA는 통합모델 기준으로 별도 출력
@@ -216,7 +222,7 @@ function workbookForLine(line){
       const bf=b.filter(r=>r.kind==='피팅');
       if(bf.length)addStyledSheet(wb,'통합모델-피팅-출력',fitRows(bf),[8,22,8,3,8,22,8,3,8,22,8]);
       const bh=b.filter(r=>r.kind==='호스');
-      if(bh.length)addStyledSheet(wb,'통합모델-호스-출력',hoseRows(bh),[16,22,10,22,36,8,28,10,18]);
+      if(bh.length)addStyledSheet(wb,'통합모델-호스-출력',hoseRows(bh),[16,22,10,22,36,8,28,10]);
     }
   }
 
@@ -295,7 +301,7 @@ function renderLineOutputButtons(){
         const out=XLSX.utils.book_new();
         addStyledSheet(out,'출력',mainRows(rows),[16,22,10,22,36,8,28,10,18]);
         const f=rows.filter(r=>r.kind==='피팅'); if(f.length)addStyledSheet(out,'피팅-출력',fitRows(f),[8,22,8,3,8,22,8,3,8,22,8]);
-        const h=rows.filter(r=>r.kind==='호스'); if(h.length)addStyledSheet(out,'호스-출력',hoseRows(h),[16,22,10,22,36,8,28,10,18]);
+        const h=rows.filter(r=>r.kind==='호스'); if(h.length)addStyledSheet(out,'호스-출력',hoseRows(h),[16,22,10,22,36,8,28,10]);
         XLSX.writeFile(out,`서진정공_통합모델_${selectedDateFromRows(rows)}_출력.xlsx`);
       }else{
         XLSX.writeFile(wb,outputFileName(line));
