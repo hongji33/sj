@@ -122,31 +122,53 @@ function mainRows(a){
   ];
 }
 function fitRows(a){
-  // 피팅 출력: 순번은 각 열 블록에서 위→아래로 1,2,3... 증가한다.
-  // A4 가로 한 페이지에 보기 좋게 3개의 세로 블록을 배치한다.
-  // 각 블록은 [순번, 부품자재코드, 수량]으로 구성한다.
+  // 피팅 출력: 실제 현장 양식처럼 자재코드별로 [순번+코드+합계수량] 헤더 행 하나와
+  // 그 아래 [선반위치] 행, [생산번호+수량] 행들을 붙여서 출력한다.
+  // 베이지색 강조는 헤더 행에만 적용되어야 하므로, 헤더 행에만 순번(col 0/4/8)을 채우고
+  // 하위 상세 행은 순번을 비워둔다(styleSheet의 isGroupRow 판정이 이 값을 사용한다).
+  // A4 가로 한 페이지에 보기 좋게 3개의 세로 블록에 순서대로(1블록을 다 채운 뒤 다음 블록) 배치한다.
   const rows=cleanRows(a);
   const byCode=new Map();
   rows.forEach(r=>{
     const k=K(r.code);
-    if(!byCode.has(k))byCode.set(k,{code:r.code,name:r.name,items:[]});
+    if(!byCode.has(k))byCode.set(k,{code:r.code,name:r.name,loc:r.loc,items:[]});
     byCode.get(k).items.push(r);
   });
   const items=[...byCode.values()].sort((a,b)=>K(a.code).localeCompare(K(b.code),'ko',{numeric:true,sensitivity:'base'}));
-  const blocks=[[],[],[]];
-  items.forEach((it,idx)=>{
-    const block=idx%3;
-    const seq=Math.floor(idx/3)+1;
-    const qty=it.items.reduce((sum,r)=>sum+Number(r.qty||0),0);
-    blocks[block].push({seq,code:it.code,qty});
+
+  const groups=items.map((it,idx)=>{
+    const totalQty=it.items.reduce((sum,r)=>sum+Number(r.qty||0),0);
+    const byProd=new Map();
+    it.items.forEach(r=>{
+      const k=N(r.prod);
+      byProd.set(k,(byProd.get(k)||0)+Number(r.qty||0));
+    });
+    const prodRows=[...byProd.entries()].filter(([prod])=>prod!=='').sort((x,y)=>{
+      const nx=Number(x[0]),ny=Number(y[0]);
+      if(!isNaN(nx)&&!isNaN(ny))return nx-ny;
+      return x[0].localeCompare(y[0],'ko',{numeric:true});
+    });
+    const lines=[{header:true,seq:idx+1,code:it.code,qty:totalQty}];
+    if(N(it.loc))lines.push({header:false,code:N(it.loc),qty:''});
+    prodRows.forEach(([prod,qty])=>lines.push({header:false,code:prod,qty}));
+    return lines;
   });
+
+  // 자재코드(항목) 개수를 3등분해 순서대로 블록에 채운다(라운드로빈이 아님).
+  const blockSize=Math.max(1,Math.ceil(groups.length/3));
+  const blocks=[[],[],[]];
+  groups.forEach((lines,idx)=>{
+    const block=Math.min(2,Math.floor(idx/blockSize));
+    blocks[block].push(...lines);
+  });
+
   const maxRows=Math.max(0,...blocks.map(b=>b.length));
   const out=[['순번','부품자재코드','수량','','순번','부품자재코드','수량','','순번','부품자재코드','수량']];
   for(let i=0;i<maxRows;i++){
     const row=[];
     for(let b=0;b<3;b++){
       const x=blocks[b][i];
-      row.push(x?x.seq:'',x?x.code:'',x?x.qty:'');
+      row.push(x&&x.header?x.seq:'',x?x.code:'',x?x.qty:'');
       if(b<2)row.push('');
     }
     out.push(row);
