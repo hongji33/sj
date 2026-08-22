@@ -87,17 +87,18 @@ function enrich(r){
   // 선반위치를 명확하게 #N/A로 표시한다.
   // H열 코드가 매칭되었지만 I열 선반위치 자체가 비어 있는 경우에는 빈칸으로 둔다.
   const isHose=kind(marsh,name)==='호스';
-  const loc=isHose?'':(h ? N(h.loc) : '#N/A');
+  const loc=isHose?'':(!h || !N(h.loc) ? '#N/A' : N(h.loc));
   return{...r,name,vendor,marsh,loc,use,kind:kind(marsh,name),matched:!!h,locationMatched:isHose||!!(h&&N(h.loc)),group:group(r.model,r.line)}
 }function group(model,line){let m=N(model).toUpperCase();if(line==='통합1'&&['HEBAM','KEBAA'].includes(m))return m;if(/^HX/.test(m))return'HX';if(/^HW/.test(m))return'HW';return m||'기타'}function agg(a){let m=new Map;for(const r of a){let k=[r.group,r.kind,r.code,r.name,r.vendor,r.loc,r.prod,r.unit].join('|');if(!m.has(k))m.set(k,{...r});else m.get(k).qty+=r.qty}return[...m.values()]}
 function shown(){let a=S.rows.filter(r=>S.active==='전체'||r.group===S.active);if(!$('x').checked)a=a.filter(r=>r.marsh!=='X');return $('sum').checked?agg(a):a}
+function isHoseRow(r){return r.kind==='호스'||N(r.marsh).toUpperCase()==='HOSE'||N(r.name).toUpperCase().includes('HOSE')}
 function render(){
   let gs=[...new Set(S.rows.map(r=>r.group))];
   $('tabs').innerHTML=['전체',...gs].map(g=>`<button class="tab ${S.active===g?'active':''}" data-g="${g}">${g} <span class="muted">${g==='전체'?S.rows.length:S.rows.filter(r=>r.group===g).length}</span></button>`).join('');
   document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{S.active=b.dataset.g;render()});
   renderLineOutputButtons();
   const a=shown();
-  $('result').innerHTML=a.length?`<section class="card"><div class="table"><table><thead><tr><th>라인</th><th>생산번호</th><th>모델</th><th>호기</th><th>부품자재코드</th><th>부품자재명</th><th>수량</th><th>업체명</th><th>구분</th><th>선반위치</th><th>상태</th></tr></thead><tbody>${a.map(r=>`<tr><td>${r.line}</td><td>${r.prod}</td><td>${r.model}</td><td>${r.unit}</td><td>${r.code}</td><td>${r.name}</td><td>${r.qty}</td><td>${r.vendor}</td><td><span class="tag ${r.marsh==='A'?'a':r.marsh==='B'?'b':r.kind==='호스'?'h':'x'}">${r.marsh||r.kind}</span></td><td>${r.loc||'미등록'}</td><td>${r.matched?'OK':'<span class="tag err">확인필요</span>'}</td></tr>`).join('')}</tbody></table></div></section>`:'<section class="card empty">표시할 자료가 없습니다.</section>';
+  $('result').innerHTML=a.length?`<section class="card"><div class="table"><table><thead><tr><th>라인</th><th>생산번호</th><th>모델</th><th>호기</th><th>부품자재코드</th><th>부품자재명</th><th>수량</th><th>업체명</th><th>구분</th><th>선반위치</th><th>상태</th></tr></thead><tbody>${a.map(r=>`<tr><td>${r.line}</td><td>${r.prod}</td><td>${r.model}</td><td>${r.unit}</td><td>${r.code}</td><td>${r.name}</td><td>${r.qty}</td><td>${r.vendor}</td><td><span class="tag ${r.marsh==='A'?'a':r.marsh==='B'?'b':r.kind==='호스'?'h':'x'}">${r.marsh||r.kind}</span></td><td>${isHoseRow(r)?'':(r.matched?(r.loc||''):'#N/A')}</td><td>${r.matched?'OK':'<span class="tag err">확인필요</span>'}</td></tr>`).join('')}</tbody></table></div></section>`:'<section class="card empty">표시할 자료가 없습니다.</section>';
 }
 function stats(){let p=new Set(S.rows.map(r=>r.prod)).size,u=S.rows.filter(r=>!r.matched),l=new Set(S.rows.map(r=>r.line)).size;$('stats').innerHTML=`<div class="stat">생산번호<b>${p}</b></div><div class="stat">자재 행<b>${S.rows.length}</b></div><div class="stat">미매칭<b>${u.length}</b></div><div class="stat">라인<b>${l}</b></div>`;let miss=[...new Set(u.map(r=>r.code))];$('notice').innerHTML=miss.length?`<div class="notice danger"><b>기준표에서 찾지 못한 자재코드 ${miss.length}개</b><br>${miss.slice(0,25).join(', ')}${miss.length>25?' …':''}<br>출력 전에 확인하세요.</div>`:`<div class="notice success">모든 자재코드가 현재 기준표에서 확인되었습니다.</div>`}
 $('file').onchange=e=>{$('go').disabled=!e.target.files.length;$('info').textContent=e.target.files[0]?.name||''};$('go').onclick=async()=>{try{let f=$('file').files[0],wb=XLSX.read(await f.arrayBuffer(),{type:'array'}),a=analyze(wb);if(!a.all.length)throw Error('생산번호/자재코드/수량 열을 찾지 못했습니다.');S.source=f.name;S.rows=a.all.map(enrich);S.active='전체';$('controls').style.display='block';$('save').disabled=false;stats();render();$('info').innerHTML=`<div class="notice success"><b>${f.name}</b><br>${a.sheets.map(x=>`${x[0]}: ${x[1]}행${x[2]?' · '+x[2]:''}`).join(' / ')}</div>`}catch(e){$('info').innerHTML='<div class="notice danger">'+e.message+'</div>'}};$('x').onchange=render;$('sum').onchange=render;$('print').onclick=()=>window.print();
@@ -117,52 +118,40 @@ function mainRows(a){
     });
   return [
     ['생산번호','모델','호기','부품자재코드','부품자재명','수량','업체명','구분','선반위치'],
-    ...rows.map(r=>[r.prod,r.model,r.unit,r.code,r.name,r.qty,r.vendor,r.marsh,r.loc])
+    ...rows.map(r=>[r.prod,r.model,r.unit,r.code,r.name,r.qty,r.vendor,r.marsh,isHoseRow(r)?'':(r.matched?(r.loc||''):'#N/A')])
   ];
 }
 function fitRows(a){
+  // 피팅 출력: 순번은 각 열 블록에서 위→아래로 1,2,3... 증가한다.
+  // A4 가로 한 페이지에 보기 좋게 3개의 세로 블록을 배치한다.
+  // 각 블록은 [순번, 부품자재코드, 수량]으로 구성한다.
   const rows=cleanRows(a);
   const byCode=new Map();
-  rows.forEach(r=>{const k=K(r.code);if(!byCode.has(k))byCode.set(k,{code:r.code,name:r.name,items:[]});byCode.get(k).items.push(r)});
-  const items=[...byCode.values()].sort((a,b)=>String(a.code).localeCompare(String(b.code),'ko'));
-  const out=[['순번','부품자재코드','수량','','순번','부품자재코드','수량','','순번','부품자재코드','수량']];
-  let row=[];
-  let seq=1;
-  for(const it of items){
-    const total=it.items.reduce((s,r)=>s+Number(r.qty||0),0);
-    const units=[...new Set(it.items.map(r=>r.unit).filter(v=>v!==''&&v!=null))].join(', ');
-    row.push([seq,it.code,total,'', '',it.name,'','', '',units,total]);
-    if(row.length===3){
-      const a1=row.map(x=>x[0]),a2=row.map(x=>x[1]),a3=row.map(x=>x[2]);
-      const rr1=[a1[0],a2[0],a3[0],'',a1[1],a2[1],a3[1],'',a1[2],a2[2],a3[2]];
-      const rr2=['',it.name,'','', '',row[1][5],'','', '',row[2][5],''];
-      const rr3=['',units,total,'','',row[1][9],row[1][10]||'','','',row[2][9],row[2][10]||''];
-      out.push(rr1,rr2,rr3); row=[]; seq++;
-    } else {
-      // temporarily store as compact item; rebuilt below for remaining blocks
-      row[row.length-1]=[seq,it.code,total,'', '',it.name,'','', '',units,total];
-      seq++;
-    }
-  }
-  // Rebuild cleanly in 3-column blocks; each item is 3 rows.
-  const blocks=[...items].map((it,idx)=>{
-    const total=it.items.reduce((s,r)=>s+Number(r.qty||0),0);
-    const units=[...new Set(it.items.map(r=>r.unit).filter(v=>v!==''&&v!=null))].join(', ');
-    return {seq:idx+1,code:it.code,name:it.name,total,units};
+  rows.forEach(r=>{
+    const k=K(r.code);
+    if(!byCode.has(k))byCode.set(k,{code:r.code,name:r.name,items:[]});
+    byCode.get(k).items.push(r);
   });
-  const final=[out[0]];
-  for(let i=0;i<blocks.length;i+=3){
-    const g=blocks.slice(i,i+3);
-    const r1=[],r2=[],r3=[];
-    for(let j=0;j<3;j++){
-      const x=g[j];
-      if(x){r1.push(x.seq,x.code,x.total);r2.push('',x.name,'');r3.push('',x.units,x.total)}
-      else {r1.push('','','');r2.push('','','');r3.push('','','')}
-      if(j<2){r1.push('');r2.push('');r3.push('')}
+  const items=[...byCode.values()].sort((a,b)=>K(a.code).localeCompare(K(b.code),'ko',{numeric:true,sensitivity:'base'}));
+  const blocks=[[],[],[]];
+  items.forEach((it,idx)=>{
+    const block=idx%3;
+    const seq=Math.floor(idx/3)+1;
+    const qty=it.items.reduce((sum,r)=>sum+Number(r.qty||0),0);
+    blocks[block].push({seq,code:it.code,qty});
+  });
+  const maxRows=Math.max(0,...blocks.map(b=>b.length));
+  const out=[['순번','부품자재코드','수량','','순번','부품자재코드','수량','','순번','부품자재코드','수량']];
+  for(let i=0;i<maxRows;i++){
+    const row=[];
+    for(let b=0;b<3;b++){
+      const x=blocks[b][i];
+      row.push(x?x.seq:'',x?x.code:'',x?x.qty:'');
+      if(b<2)row.push('');
     }
-    final.push(r1,r2,r3);
+    out.push(row);
   }
-  return final;
+  return out;
 }
 function hoseRows(a, byUnit=false){
   let rows=cleanRows(a);
@@ -205,10 +194,18 @@ function styleSheet(ws,widths,freeze='A2',opts={}){
       if(!cell)continue;
       cell.s={
         font:{name:'맑은 고딕',sz:12,bold:R===0},
-        alignment:{vertical:'center',horizontal:C===5?'center':'left',wrap_text:true},
+        alignment:{vertical:'center',horizontal:'center',wrap_text:true},
         border:{top:thin,bottom:thin,left:thin,right:thin}
       };
       if(R===0)cell.s.fill=headerFill;
+      // 피팅-출력: 실제 현장 양식처럼 각 자재 묶음의 첫 행을 베이지색으로 강조
+      if(opts.fittingBlocks && R>0){
+        const isGroupRow=[0,4,8].some(c=>{
+          const v=ws[XLSX.utils.encode_cell({r:R,c})]?.v;
+          return v!==undefined && v!==null && String(v).trim()!=='';
+        });
+        if(isGroupRow) cell.s.fill={patternType:'solid',fgColor:{rgb:'DDD9C4'}};
+      }
     }
   }
   // 일반 '출력'은 부품자재코드가 바뀌는 지점마다 굵은 가로선으로 그룹을 구분한다.
@@ -242,10 +239,16 @@ function styleSheet(ws,widths,freeze='A2',opts={}){
 function addStyledSheet(wb,name,data,widths){
   const ws=XLSX.utils.aoa_to_sheet(data);
   const isMainOutput=name==='출력';
-  styleSheet(ws,widths,'A2',{thickBottom:isMainOutput && data.length>1,codeGroupLines:isMainOutput && data.length>1});
+  styleSheet(ws,widths,'A2',{
+    thickBottom:isMainOutput && data.length>1,
+    codeGroupLines:isMainOutput && data.length>1,
+    fittingBlocks:name==='피팅-출력'
+  });
   ws['!rows']=data.map((r,i)=>({hpt:i===0?24:20}));
-  ws['!pageSetup']={orientation:'landscape',fitToWidth:1,fitToHeight:0,scale:100};
+  ws['!pageSetup']={orientation:'landscape',fitToWidth:1,fitToHeight:0,scale:100,paperSize:9,fitToPage:true};
+  ws['!sheetPr']={pageSetUpPr:{fitToPage:true,autoPageBreaks:false}};
   ws['!margins']={left:0.2,right:0.2,top:0.35,bottom:0.35,header:0.1,footer:0.1};
+  if(ws['!ref'])ws['!printArea']=ws['!ref'];
   ws['!printOptions']={gridLines:false,headings:false};
   XLSX.utils.book_append_sheet(wb,ws,name.slice(0,31));
   return ws;
