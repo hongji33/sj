@@ -202,6 +202,7 @@ function hoseRows(a, byUnit=false){
   out.push(['','','총합계','','','', '', total]);
   return out;
 }
+function hasEnglishSuffix(v){return /[A-Za-z]+$/.test(String(v??'').trim());}
 function styleSheet(ws,widths,freeze='A2',opts={}){
   ws['!cols']=widths.map(w=>({wch:w}));
   ws['!freeze']=freeze;
@@ -215,7 +216,7 @@ function styleSheet(ws,widths,freeze='A2',opts={}){
       const cell=ws[XLSX.utils.encode_cell({r:R,c:C})];
       if(!cell)continue;
       cell.s={
-        font:{name:'맑은 고딕',sz:12,bold:R===0},
+        font:{name:'맑은 고딕',sz:14,bold:R===0},
         alignment:{vertical:'center',horizontal:'center',wrap_text:true},
         border:{top:thin,bottom:thin,left:thin,right:thin}
       };
@@ -257,23 +258,58 @@ function styleSheet(ws,widths,freeze='A2',opts={}){
       if(cell)cell.s.border.bottom=medium;
     }
   }
+  // 부품자재코드 끝에 영문자가 붙어있으면(변형/파생 코드) 그 칸만 연한 회색으로 강조한다.
+  // opts.codeHeaderOnly가 true면(피팅-출력처럼 열이 여러 블록으로 나뉜 경우) 각 코드열 왼쪽의
+  // 순번 칸에 값이 있는 행(=자재코드 헤더 행)에만 적용하고, 하위 상세 행(위치/생산번호)은 건너뛴다.
+  if(opts.codeCols && opts.codeCols.length && range.e.r>=range.s.r){
+    const grayFill={patternType:'solid',fgColor:{rgb:'D9D9D9'}};
+    for(let R=range.s.r+1;R<=range.e.r;R++){
+      opts.codeCols.forEach(cCol=>{
+        const cell=ws[XLSX.utils.encode_cell({r:R,c:cCol})];
+        if(!cell||cell.v===undefined||cell.v===null||String(cell.v).trim()==='')return;
+        if(opts.codeHeaderOnly){
+          const seqCell=ws[XLSX.utils.encode_cell({r:R,c:cCol-1})];
+          const hasSeq=seqCell&&seqCell.v!==undefined&&seqCell.v!==null&&String(seqCell.v).trim()!=='';
+          if(!hasSeq)return;
+        }
+        if(hasEnglishSuffix(cell.v))cell.s.fill=grayFill;
+      });
+    }
+  }
 }
-function addStyledSheet(wb,name,data,widths){
+function addStyledSheet(wb,name,data,widths,opts={}){
   const ws=XLSX.utils.aoa_to_sheet(data);
   const isMainOutput=name==='출력';
   styleSheet(ws,widths,'A2',{
     thickBottom:isMainOutput && data.length>1,
     codeGroupLines:isMainOutput && data.length>1,
-    fittingBlocks:name==='피팅-출력'
+    fittingBlocks:name==='피팅-출력',
+    codeCols:opts.codeCols,
+    codeHeaderOnly:opts.codeHeaderOnly
   });
-  ws['!rows']=data.map((r,i)=>({hpt:i===0?24:20}));
+  ws['!rows']=data.map((r,i)=>({hpt:i===0?30:26}));
   ws['!pageSetup']={orientation:'landscape',fitToWidth:1,fitToHeight:0,scale:100,paperSize:9,fitToPage:true};
   ws['!sheetPr']={pageSetUpPr:{fitToPage:true,autoPageBreaks:false}};
-  ws['!margins']={left:0.2,right:0.2,top:0.35,bottom:0.35,header:0.1,footer:0.1};
+  ws['!margins']={left:0.2,right:0.2,top:0.4,bottom:0.35,header:0.15,footer:0.1};
   if(ws['!ref'])ws['!printArea']=ws['!ref'];
   ws['!printOptions']={gridLines:false,headings:false};
+  // 인쇄 시 시트 상단 우측에 파일명과 날짜를 표기한다(예: "통합1라인 피팅"처럼 페이지 머리글 영역에 출력).
+  if(opts.headerText){
+    const safe=String(opts.headerText).replace(/&/g,'&&');
+    const code='&R&"맑은 고딕"&11'+safe;
+    ws['!headerFooter']={oddHeader:code,evenHeader:code,firstHeader:code};
+  }
   XLSX.utils.book_append_sheet(wb,ws,name.slice(0,31));
   return ws;
+}
+function formatDay(day){
+  const s=String(day||'');
+  const m=s.match(/^(\d{4})(\d{2})(\d{2})$/);
+  return m?`${m[1]}-${m[2]}-${m[3]}`:s;
+}
+function pageHeaderText(rows){
+  const day=formatDay(selectedDateFromRows(rows));
+  return `${S.source||''} · ${day}`;
 }
 // 라인별 통합모델로 분리할 모델 목록. 이후 필요하면 이 배열만 추가/수정하면 된다.
 const SPECIAL_MODELS_BY_LINE={
@@ -301,18 +337,19 @@ function workbookForLine(line){
     if(!ok)return null;
   }
   const wb=XLSX.utils.book_new();
+  const headerText=pageHeaderText(a);
 
   // 실제 회사 파일의 핵심 출력 시트 명칭을 유지한다.
   // Sheet1-출력 = Sheet2의 '마샤링(실제 의미: 구분)'이 A인 자재만 출력
-  addStyledSheet(wb,'출력',mainRows(a),[16,22,10,22,36,8,28,10,18]);
+  addStyledSheet(wb,'출력',mainRows(a),[16,22,10,22,36,8,14,10,18],{headerText,codeCols:[3]});
 
   const fittings=a.filter(r=>r.kind==='피팅');
-  if(fittings.length) addStyledSheet(wb,'피팅-출력',fitRows(fittings),[8,22,8,3,8,22,8,3,8,22,8]);
+  if(fittings.length) addStyledSheet(wb,'피팅-출력',fitRows(fittings),[8,22,8,3,8,22,8,3,8,22,8],{headerText,codeCols:[1,5,9],codeHeaderOnly:true});
 
   const hoses=a.filter(r=>r.kind==='호스');
   if(hoses.length){
-    addStyledSheet(wb,'호스-출력',hoseRows(hoses),[16,22,10,22,36,8,28,10]);
-    addStyledSheet(wb,'호기별 호스 확인용-출력',hoseRows(hoses,true),[16,22,12,22,36,8,28,10]);
+    addStyledSheet(wb,'호스-출력',hoseRows(hoses),[16,22,10,22,36,8,14,10],{headerText,codeCols:[3]});
+    addStyledSheet(wb,'호기별 호스 확인용-출력',hoseRows(hoses,true),[16,22,12,22,36,8,14,10],{headerText,codeCols:[3]});
   }
 
   // KEBAA / HEBAM / HEBAN은 일반 라인 출력에서 제외하고 별도의 통합모델 파일로 만든다.
@@ -323,7 +360,7 @@ function workbookForLine(line){
     if(s.length){
       const d=[['착수분 전달용','','','','','',''],['','','','','','',''],['순번','생산번호','모델','호기','부품자재코드','부품자재명','수량'],
         ...s.map((r,i)=>[i+1,r.prod,r.model,r.unit,r.code,r.name,r.qty])];
-      addStyledSheet(wb,'신반장님 전달용',d,[8,16,22,10,22,36,8]);
+      addStyledSheet(wb,'신반장님 전달용',d,[8,16,22,10,22,36,8],{headerText,codeCols:[4]});
     }
   }
   return wb;
@@ -361,13 +398,14 @@ function specialRows(line){
 function workbookForSpecial(line){
   const rows=specialRows(line);
   const wb=XLSX.utils.book_new();
-  addStyledSheet(wb,'출력',mainRows(rows),[16,22,10,22,36,8,28,10,18]);
+  const headerText=pageHeaderText(rows);
+  addStyledSheet(wb,'출력',mainRows(rows),[16,22,10,22,36,8,14,10,18],{headerText,codeCols:[3]});
   const f=rows.filter(r=>r.kind==='피팅');
-  if(f.length)addStyledSheet(wb,'피팅-출력',fitRows(f),[8,22,8,3,8,22,8,3,8,22,8]);
+  if(f.length)addStyledSheet(wb,'피팅-출력',fitRows(f),[8,22,8,3,8,22,8,3,8,22,8],{headerText,codeCols:[1,5,9],codeHeaderOnly:true});
   const h=rows.filter(r=>r.kind==='호스');
   if(h.length){
-    addStyledSheet(wb,'호스-출력',hoseRows(h),[16,22,10,22,36,8,28,10]);
-    addStyledSheet(wb,'호기별 호스 확인용-출력',hoseRows(h,true),[16,22,12,22,36,8,28,10]);
+    addStyledSheet(wb,'호스-출력',hoseRows(h),[16,22,10,22,36,8,14,10],{headerText,codeCols:[3]});
+    addStyledSheet(wb,'호기별 호스 확인용-출력',hoseRows(h,true),[16,22,12,22,36,8,14,10],{headerText,codeCols:[3]});
   }
   return wb;
 }
