@@ -17,7 +17,7 @@
 <button class="btn dark" id="print">현재 화면 인쇄</button>
 </div></div>
 <div class="notice" style="margin-top:10px">
-현대 원본의 각 라인별 자료를 따로 출력합니다. <b>일반 '출력' 시트는 기준 엑셀 Sheet2의 '마샤링' 열(실제 의미: 구분)이 A인 자재만</b> 출력하고, B는 피팅, HOSE는 호스 출력으로 분리합니다. 버튼 이름은 실제 전달 업무에 맞춰 <b>라인 + 날짜 + 출력</b>으로 표시됩니다.
+현대 원본의 각 라인별 자료를 따로 출력합니다. <b>일반 '출력' 파일에서는 KEBAA / HEBAM / HEBAN을 제외</b>하고, 제외한 자료는 각 라인별 <b>통합모델</b> 파일로 따로 생성합니다. 일반 '출력' 시트는 기준 엑셀 Sheet2의 '마샤링' 열(실제 의미: 구분)이 A인 자재만 출력하고, B는 피팅, HOSE는 호스 출력으로 분리합니다.
 </div>
 <div id="lineOutputs" class="output-grid"></div>
 <div id="tabs" class="tabs"></div>
@@ -59,7 +59,7 @@ function analyze(wb){
   }
   return{all,sheets};
 }
-function enrich(r){let map=MAP[r.line],use=r.line;if(r.line==='통합1'&&['HEBAM','KEBAA'].includes(r.model.toUpperCase())){map=MAP['통합모델'];use='통합모델'}let h=map?.get(K(r.code));let name=h?.name||r.sourceName||'',marsh=h?.marsh||'',vendor=h?.vendor||'',loc=h?.loc||'';return{...r,name,vendor,marsh,loc,use,kind:kind(marsh,name),matched:!!h,group:group(r.model,r.line)}}function group(model,line){let m=N(model).toUpperCase();if(line==='통합1'&&['HEBAM','KEBAA'].includes(m))return m;if(/^HX/.test(m))return'HX';if(/^HW/.test(m))return'HW';return m||'기타'}function agg(a){let m=new Map;for(const r of a){let k=[r.group,r.kind,r.code,r.name,r.vendor,r.loc,r.prod,r.unit].join('|');if(!m.has(k))m.set(k,{...r});else m.get(k).qty+=r.qty}return[...m.values()]}
+function enrich(r){let map=MAP[r.line],use=r.line;if(['통합1','통합2'].includes(r.line)&&isSpecialModel(r)){map=MAP['통합모델']||map;use='통합모델'}let h=map?.get(K(r.code));let name=h?.name||r.sourceName||'',marsh=h?.marsh||'',vendor=h?.vendor||'',loc=h?.loc||'';return{...r,name,vendor,marsh,loc,use,kind:kind(marsh,name),matched:!!h,group:group(r.model,r.line)}}function group(model,line){let m=N(model).toUpperCase();if(line==='통합1'&&['HEBAM','KEBAA'].includes(m))return m;if(/^HX/.test(m))return'HX';if(/^HW/.test(m))return'HW';return m||'기타'}function agg(a){let m=new Map;for(const r of a){let k=[r.group,r.kind,r.code,r.name,r.vendor,r.loc,r.prod,r.unit].join('|');if(!m.has(k))m.set(k,{...r});else m.get(k).qty+=r.qty}return[...m.values()]}
 function shown(){let a=S.rows.filter(r=>S.active==='전체'||r.group===S.active);if(!$('x').checked)a=a.filter(r=>r.marsh!=='X');return $('sum').checked?agg(a):a}
 function render(){
   let gs=[...new Set(S.rows.map(r=>r.group))];
@@ -190,8 +190,11 @@ function addStyledSheet(wb,name,data,widths){
   XLSX.utils.book_append_sheet(wb,ws,name.slice(0,31));
   return ws;
 }
-function lineRows(line){
+const SPECIAL_MODELS=['KEBAA','HEBAM','HEBAN'];
+function isSpecialModel(r){return SPECIAL_MODELS.includes(String(r.model||'').trim().toUpperCase());}
+function lineRows(line, excludeSpecial=true){
   let a=S.rows.filter(r=>r.line===line);
+  if(excludeSpecial)a=a.filter(r=>!isSpecialModel(r));
   if(!$('x').checked)a=a.filter(r=>r.marsh!=='X');
   return a;
 }
@@ -212,23 +215,11 @@ function workbookForLine(line){
     addStyledSheet(wb,'호기별 호스 확인용-출력',hoseRows(hoses,true),[16,22,12,22,36,8,28,10]);
   }
 
-  // 통합1라인의 HEBAM/KEBAA는 통합모델 기준으로 별도 출력
-  if(line==='통합1'){
-    const special=S.rows.filter(r=>r.line==='통합1' && ['HEBAM','KEBAA'].includes(String(r.model).toUpperCase()));
-    if(special.length){
-      let b=special;
-      if(!$('x').checked)b=b.filter(r=>r.marsh!=='X');
-      addStyledSheet(wb,'통합모델-출력',mainRows(b),[16,22,10,22,36,8,28,10,18]);
-      const bf=b.filter(r=>r.kind==='피팅');
-      if(bf.length)addStyledSheet(wb,'통합모델-피팅-출력',fitRows(bf),[8,22,8,3,8,22,8,3,8,22,8]);
-      const bh=b.filter(r=>r.kind==='호스');
-      if(bh.length)addStyledSheet(wb,'통합모델-호스-출력',hoseRows(bh),[16,22,10,22,36,8,28,10]);
-    }
-  }
+  // KEBAA / HEBAM / HEBAN은 일반 라인 출력에서 제외하고 별도의 통합모델 파일로 만든다.
 
   // 선진/통합1라인에서 실제로 사용하던 전달용 자료
   if(line==='통합1'||line==='선진'){
-    const s=a.filter(r=>r.kind!=='호스'&&r.marsh!=='B');
+    const s=a.filter(r=>!isSpecialModel(r)&&r.kind!=='호스'&&r.marsh!=='B');
     if(s.length){
       const d=[['착수분 전달용','','','','','',''],['','','','','','',''],['순번','생산번호','모델','호기','부품자재코드','부품자재명','수량'],
         ...s.map((r,i)=>[i+1,r.prod,r.model,r.unit,r.code,r.name,r.qty])];
@@ -262,6 +253,28 @@ function selectedDateFromRows(rows){
   if(m)return `${m[1]}${m[2]}${m[3]}`;
   return new Date().toISOString().slice(0,10).replaceAll('-','');
 }
+function specialRows(line){
+  let a=S.rows.filter(r=>r.line===line&&isSpecialModel(r));
+  if(!$('x').checked)a=a.filter(r=>r.marsh!=='X');
+  return a;
+}
+function workbookForSpecial(line){
+  const rows=specialRows(line);
+  const wb=XLSX.utils.book_new();
+  addStyledSheet(wb,'출력',mainRows(rows),[16,22,10,22,36,8,28,10,18]);
+  const f=rows.filter(r=>r.kind==='피팅');
+  if(f.length)addStyledSheet(wb,'피팅-출력',fitRows(f),[8,22,8,3,8,22,8,3,8,22,8]);
+  const h=rows.filter(r=>r.kind==='호스');
+  if(h.length){
+    addStyledSheet(wb,'호스-출력',hoseRows(h),[16,22,10,22,36,8,28,10]);
+    addStyledSheet(wb,'호기별 호스 확인용-출력',hoseRows(h,true),[16,22,12,22,36,8,28,10]);
+  }
+  return wb;
+}
+function specialFileName(line){
+  const day=selectedDateFromRows(specialRows(line));
+  return `서진정공_${line}용통합모델_${day}.xlsx`;
+}
 function renderLineOutputButtons(){
   const lines=[
     ['통합1','통합1라인'],
@@ -272,40 +285,40 @@ function renderLineOutputButtons(){
   ];
   const present=new Set(S.rows.map(r=>r.line));
   const cards=lines.filter(x=>present.has(x[0])).map(([key,label])=>{
-    const rows=lineRows(key);
-    const day=selectedDateFromRows(rows);
+    const rows=lineRows(key,true);
+    const day=selectedDateFromRows(rows.length?rows:S.rows.filter(r=>r.line===key));
+    const special=specialRows(key);
     return `<div class="output-card">
       <h3>${label} ${day} 출력</h3>
-      <p>${rows.length}개 자재 행 · ${new Set(rows.map(r=>r.prod)).size}개 생산번호<br>이 라인의 기존 <b>출력</b> 시트 형식으로 엑셀을 생성합니다.</p>
+      <p>${rows.length}개 자재 행 · ${new Set(rows.map(r=>r.prod)).size}개 생산번호<br>KEBAA / HEBAM / HEBAN은 이 파일에서 제외됩니다.</p>
       <button class="btn primary" data-line-output="${key}">${label} ${day} 출력</button>
     </div>`;
   }).join('');
 
-  // HEBAM/KEBAA는 통합1라인 안에서 별도의 통합모델 출력으로 제공
-  const special=S.rows.filter(r=>r.line==='통합1'&&['HEBAM','KEBAA'].includes(String(r.model).toUpperCase()));
-  const specialCard=special.length?`<div class="output-card">
-    <h3>통합모델 ${selectedDateFromRows(special)} 출력</h3>
-    <p>HEBAM / KEBAA ${special.length}개 자재 행<br>통합모델 기준으로 별도 출력합니다.</p>
-    <button class="btn primary" data-line-output="통합모델">통합모델 ${selectedDateFromRows(special)} 출력</button>
-  </div>`:'';
+  const specialCards=lines.filter(([key])=>present.has(key)&&specialRows(key).length).map(([key,label])=>{
+    const rows=specialRows(key), day=selectedDateFromRows(rows);
+    return `<div class="output-card">
+      <h3>${label}용 통합모델 ${day}</h3>
+      <p>KEBAA / HEBAM / HEBAN ${rows.length}개 자재 행<br>${label}에서 제외한 모델만 별도 파일로 생성합니다.</p>
+      <button class="btn primary" data-special-output="${key}">${label}용 통합모델 ${day} 출력</button>
+    </div>`;
+  }).join('');
 
-  $('lineOutputs').innerHTML=cards+specialCard||'<div class="empty">출력할 라인 자료가 없습니다.</div>';
+  $('lineOutputs').innerHTML=(cards+specialCards)||'<div class="empty">출력할 라인 자료가 없습니다.</div>';
 
   document.querySelectorAll('[data-line-output]').forEach(btn=>{
     btn.onclick=()=>{
       const line=btn.dataset.lineOutput;
-      const wb=line==='통합모델'?workbookForLine('통합1'):workbookForLine(line);
-      if(line==='통합모델'){
-        // 통합1의 특수 모델만 남긴 전용 파일
-        const rows=S.rows.filter(r=>r.line==='통합1'&&['HEBAM','KEBAA'].includes(String(r.model).toUpperCase()));
-        const out=XLSX.utils.book_new();
-        addStyledSheet(out,'출력',mainRows(rows),[16,22,10,22,36,8,28,10,18]);
-        const f=rows.filter(r=>r.kind==='피팅'); if(f.length)addStyledSheet(out,'피팅-출력',fitRows(f),[8,22,8,3,8,22,8,3,8,22,8]);
-        const h=rows.filter(r=>r.kind==='호스'); if(h.length)addStyledSheet(out,'호스-출력',hoseRows(h),[16,22,10,22,36,8,28,10]);
-        XLSX.writeFile(out,`서진정공_통합모델_${selectedDateFromRows(rows)}_출력.xlsx`);
-      }else{
-        XLSX.writeFile(wb,outputFileName(line));
-      }
+      const wb=workbookForLine(line);
+      XLSX.writeFile(wb,outputFileName(line));
+    };
+  });
+  document.querySelectorAll('[data-special-output]').forEach(btn=>{
+    btn.onclick=()=>{
+      const line=btn.dataset.specialOutput;
+      const rows=specialRows(line);
+      if(!rows.length){alert('해당 라인의 KEBAA / HEBAM / HEBAN 자료가 없습니다.');return;}
+      XLSX.writeFile(workbookForSpecial(line),specialFileName(line));
     };
   });
 }
